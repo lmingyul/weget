@@ -23,6 +23,18 @@ export interface UITranslations {
   queued: string;
   downloading: string;
   download_concurrency: string;
+  checking_playlist: string;
+  playlist_title: string;
+  playlist_description: string;
+  playlist_current: string;
+  playlist_single: string;
+  playlist_download_selected: string;
+  playlist_select_all: string;
+  playlist_deselect_all: string;
+  playlist_selection: string;
+  playlist_check_failed: string;
+  playlist_queue_failed: string;
+  playlist_partial: string;
   completed: string;
   failed: string;
   cancelled: string;
@@ -132,6 +144,18 @@ export const defaultTranslations: UITranslations = {
   queued: "queued",
   downloading: "downloading",
   download_concurrency: "Parallel: {count}",
+  checking_playlist: "Checking episodes...",
+  playlist_title: "Multiple episodes found",
+  playlist_description: "This video has {count} episodes. Select the episodes to download.",
+  playlist_current: "Current",
+  playlist_single: "Current episode only",
+  playlist_download_selected: "Download selected ({count})",
+  playlist_select_all: "Select all",
+  playlist_deselect_all: "Deselect all",
+  playlist_selection: "Selected {selected} / {total}",
+  playlist_check_failed: "Could not check episodes. Please try again.",
+  playlist_queue_failed: "Could not start the download. Please try again.",
+  playlist_partial: "Queued {queued} episodes; {failed} could not be added.",
   completed: "completed",
   failed: "failed",
   cancelled: "cancelled",

@@ -1,6 +1,7 @@
 package extractor
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -149,6 +150,17 @@ func (b *BilibiliExtractor) Extract(urlStr string) (Media, error) {
 	return worker.extract(urlStr)
 }
 
+func (b *BilibiliExtractor) initClient() {
+	if b.client == nil {
+		b.client = &http.Client{
+			Timeout: 30 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse // Don't follow redirects automatically
+			},
+		}
+	}
+}
+
 func (b *BilibiliExtractor) extract(urlStr string) (Media, error) {
 	urlStr, err := NormalizeURL(urlStr)
 	if err != nil {
@@ -158,18 +170,10 @@ func (b *BilibiliExtractor) extract(urlStr string) (Media, error) {
 	if err != nil || !b.Match(u) {
 		return nil, fmt.Errorf("invalid Bilibili video URL")
 	}
-	// Initialize HTTP client
-	if b.client == nil {
-		b.client = &http.Client{
-			Timeout: 30 * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse // Don't follow redirects automatically
-			},
-		}
-	}
+	b.initClient()
 
 	// Resolve short URLs and extract video ID
-	aid, bvid, page, err := b.resolveVideoID(urlStr)
+	aid, bvid, page, err := b.resolveVideoID(context.Background(), urlStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve video ID: %w", err)
 	}
@@ -181,7 +185,7 @@ func (b *BilibiliExtractor) extract(urlStr string) (Media, error) {
 	}
 
 	// Fetch video info
-	videoInfo, err := b.fetchVideoInfo(aid)
+	videoInfo, err := b.fetchVideoInfo(context.Background(), aid)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch video info: %w", err)
 	}
@@ -223,14 +227,14 @@ func (b *BilibiliExtractor) extract(urlStr string) (Media, error) {
 }
 
 // resolveVideoID extracts aid, bvid, and page from the resolved URL.
-func (b *BilibiliExtractor) resolveVideoID(urlStr string) (aid int64, bvid string, page int, err error) {
+func (b *BilibiliExtractor) resolveVideoID(ctx context.Context, urlStr string) (aid int64, bvid string, page int, err error) {
 	// Handle short URLs
 	u, err := url.Parse(urlStr)
 	if err != nil {
 		return 0, "", 0, err
 	}
 	if strings.EqualFold(u.Hostname(), "b23.tv") || strings.EqualFold(u.Hostname(), "www.b23.tv") {
-		urlStr, err = b.resolveShortURL(urlStr)
+		urlStr, err = b.resolveShortURL(ctx, urlStr)
 		if err != nil {
 			return 0, "", 0, err
 		}
@@ -282,8 +286,8 @@ func (b *BilibiliExtractor) resolveVideoID(urlStr string) (aid int64, bvid strin
 }
 
 // resolveShortURL follows redirects to get the full URL
-func (b *BilibiliExtractor) resolveShortURL(shortURL string) (string, error) {
-	req, err := http.NewRequest("HEAD", shortURL, nil)
+func (b *BilibiliExtractor) resolveShortURL(ctx context.Context, shortURL string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "HEAD", shortURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -448,10 +452,10 @@ type BilibiliVideoInfo struct {
 }
 
 // fetchVideoInfo retrieves video metadata
-func (b *BilibiliExtractor) fetchVideoInfo(aid int64) (*BilibiliVideoInfo, error) {
+func (b *BilibiliExtractor) fetchVideoInfo(ctx context.Context, aid int64) (*BilibiliVideoInfo, error) {
 	api := fmt.Sprintf("https://api.bilibili.com/x/web-interface/view?aid=%d", aid)
 
-	req, err := http.NewRequest("GET", api, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", api, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -567,11 +571,13 @@ func (b *BilibiliExtractor) buildFormats(streams *BilibiliStreamInfo) []VideoFor
 
 	// Find best audio stream
 	var bestAudioURL string
+	var bestAudioBackupURLs []string
 	var bestAudioBandwidth int64
 	for _, audio := range streams.Audios {
 		if audio.Bandwidth > bestAudioBandwidth {
 			bestAudioBandwidth = audio.Bandwidth
 			bestAudioURL = audio.BaseURL
+			bestAudioBackupURLs = audio.BackupURL
 		}
 	}
 
@@ -585,13 +591,15 @@ func (b *BilibiliExtractor) buildFormats(streams *BilibiliStreamInfo) []VideoFor
 		codec := getCodecName(video.CodecID)
 
 		format := VideoFormat{
-			URL:      video.BaseURL,
-			Quality:  fmt.Sprintf("%s [%s]", quality, codec),
-			Ext:      "mp4",
-			Width:    video.Width,
-			Height:   video.Height,
-			Bitrate:  int(video.Bandwidth / 1000), // Convert to kbps
-			AudioURL: bestAudioURL,
+			URL:             video.BaseURL,
+			Quality:         fmt.Sprintf("%s [%s]", quality, codec),
+			Ext:             "mp4",
+			Width:           video.Width,
+			Height:          video.Height,
+			Bitrate:         int(video.Bandwidth / 1000), // Convert to kbps
+			AudioURL:        bestAudioURL,
+			BackupURLs:      video.BackupURL,
+			AudioBackupURLs: bestAudioBackupURLs,
 			Headers: map[string]string{
 				"Referer":    "https://www.bilibili.com/",
 				"User-Agent": b.userAgent(),

@@ -159,6 +159,23 @@ export interface BulkDownloadJob {
   error?: string;
 }
 
+export interface DownloadPlaylist {
+  title: string;
+  current_url: string;
+  entries: { index: number; title: string; url: string; current: boolean }[];
+}
+
+export async function previewDownload(
+  url: string
+): Promise<ApiResponse<{ playlist: DownloadPlaylist | null }>> {
+  const res = await fetch("/api/download/preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  return res.json();
+}
+
 export interface BulkDownloadResult {
   jobs: BulkDownloadJob[];
   queued: number;

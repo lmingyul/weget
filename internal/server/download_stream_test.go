@@ -30,7 +30,8 @@ func (d dashFixtureExtractor) Extract(string) (extractor.Media, error) {
 	}}}, nil
 }
 
-func TestDASHReturnFileMergesStreams(t *testing.T) {
+func writeDASHFixtures(t *testing.T) string {
+	t.Helper()
 	if !downloader.FFmpegAvailable() {
 		t.Skip("ffmpeg is required for the DASH integration fixture")
 	}
@@ -54,6 +55,13 @@ func TestDASHReturnFileMergesStreams(t *testing.T) {
 			t.Fatalf("create %s: %v\n%s", fixture.name, err, output)
 		}
 	}
+	return dir
+}
+
+func TestDASHReturnFileMergesStreams(t *testing.T) {
+	dir := writeDASHFixtures(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	media := httptest.NewServer(http.FileServer(http.Dir(dir)))
 	defer media.Close()
 	outputDir := t.TempDir()

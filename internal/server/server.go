@@ -125,6 +125,7 @@ func (s *Server) Start() error {
 
 	api.GET("/download", s.handleFileDownload) // Download local file by path
 	api.POST("/download", s.handleDownload)
+	api.POST("/download/preview", s.handleDownloadPreview)
 	api.POST("/bulk-download", s.handleBulkDownload)
 	api.GET("/status/:id", s.handleStatus)
 	api.GET("/jobs", s.handleGetJobs)
@@ -1216,6 +1217,7 @@ func (s *Server) downloadWithExtractor(ctx context.Context, url, filename string
 	// Determine output path based on media type
 	var outputPath string
 	var downloadURL string
+	var backupURLs []string
 	var headers map[string]string
 
 	switch m := media.(type) {
@@ -1225,6 +1227,7 @@ func (s *Server) downloadWithExtractor(ctx context.Context, url, filename string
 		}
 		format := selectBestFormat(m.Formats)
 		downloadURL = format.URL
+		backupURLs = format.BackupURLs
 		headers = format.Headers
 
 		ext := format.Ext
@@ -1329,7 +1332,7 @@ func (s *Server) downloadWithExtractor(ctx context.Context, url, filename string
 		return nil
 	}
 
-	return downloadFile(ctx, downloadURL, outputPath, headers, progressFn)
+	return downloadFileWithFallbacks(ctx, downloadURL, backupURLs, outputPath, headers, progressFn)
 }
 
 func (s *Server) downloadTelegram(ctx context.Context, url, filename string, progressFn func(int64, int64)) (*telegram.DownloadResult, error) {
@@ -1402,7 +1405,7 @@ func (s *Server) downloadVideoWithAudio(ctx context.Context, format *extractor.V
 	// Download video stream
 	go func() {
 		defer wg.Done()
-		videoErr = downloadFile(ctx, format.URL, videoFile, format.Headers, func(downloaded, total int64) {
+		videoErr = downloadFileWithFallbacks(ctx, format.URL, format.BackupURLs, videoFile, format.Headers, func(downloaded, total int64) {
 			mu.Lock()
 			videoDownloaded = downloaded
 			videoTotal = total
@@ -1414,7 +1417,7 @@ func (s *Server) downloadVideoWithAudio(ctx context.Context, format *extractor.V
 	// Download audio stream
 	go func() {
 		defer wg.Done()
-		audioErr = downloadFile(ctx, format.AudioURL, audioFile, format.Headers, func(downloaded, total int64) {
+		audioErr = downloadFileWithFallbacks(ctx, format.AudioURL, format.AudioBackupURLs, audioFile, format.Headers, func(downloaded, total int64) {
 			mu.Lock()
 			audioDownloaded = downloaded
 			audioTotal = total
@@ -1617,6 +1620,20 @@ func selectBestFormat(formats []extractor.VideoFormat) *extractor.VideoFormat {
 	return best
 }
 
+func downloadFileWithFallbacks(ctx context.Context, url string, backupURLs []string, outputPath string, headers map[string]string, progressFn func(downloaded, total int64)) error {
+	var err error
+	for _, candidate := range append([]string{url}, backupURLs...) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err = downloadFile(ctx, candidate, outputPath, headers, progressFn)
+		if err == nil {
+			return nil
+		}
+	}
+	return err
+}
+
 func downloadFile(ctx context.Context, url, outputPath string, headers map[string]string, progressFn func(downloaded, total int64)) error {
 	client := &http.Client{
 		Timeout: 0,
@@ -1624,6 +1641,7 @@ func downloadFile(ctx context.Context, url, outputPath string, headers map[strin
 			Proxy: http.ProxyFromEnvironment,
 		},
 	}
+	defer client.CloseIdleConnections()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
@@ -1656,6 +1674,9 @@ func downloadFile(ctx context.Context, url, outputPath string, headers map[strin
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
 	defer file.Close()
+	if progressFn != nil {
+		progressFn(0, total)
+	}
 
 	buf := make([]byte, 32*1024)
 	var downloaded int64

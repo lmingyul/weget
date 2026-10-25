@@ -1,6 +1,7 @@
 package extractor
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -38,6 +39,24 @@ type Extractor interface {
 	Extract(url string) (Media, error)
 }
 
+// PlaylistExtractor inspects episode metadata without resolving media streams.
+type PlaylistExtractor interface {
+	ExtractPlaylist(ctx context.Context, url string) (*Playlist, error)
+}
+
+type Playlist struct {
+	Title      string          `json:"title"`
+	CurrentURL string          `json:"current_url"`
+	Entries    []PlaylistEntry `json:"entries"`
+}
+
+type PlaylistEntry struct {
+	Index   int    `json:"index"`
+	Title   string `json:"title"`
+	URL     string `json:"url"`
+	Current bool   `json:"current"`
+}
+
 // VideoMedia represents video content with multiple format options
 type VideoMedia struct {
 	ID        string
@@ -55,14 +74,16 @@ func (v *VideoMedia) Type() MediaType     { return MediaTypeVideo }
 
 // VideoFormat represents a single video quality option
 type VideoFormat struct {
-	URL      string
-	Quality  string            // "1080p", "720p", etc.
-	Ext      string            // "mp4", "m3u8", "ts"
-	Width    int
-	Height   int
-	Bitrate  int
-	Headers  map[string]string // Custom headers for download (e.g., Referer)
-	AudioURL string            // Separate audio stream URL (for adaptive formats that need merging)
+	URL             string
+	Quality         string // "1080p", "720p", etc.
+	Ext             string // "mp4", "m3u8", "ts"
+	Width           int
+	Height          int
+	Bitrate         int
+	Headers         map[string]string // Custom headers for download (e.g., Referer)
+	AudioURL        string            // Separate audio stream URL (for adaptive formats that need merging)
+	BackupURLs      []string
+	AudioBackupURLs []string
 }
 
 // QualityLabel returns a human-readable quality label
@@ -152,17 +173,17 @@ func SanitizeFilename(name string) string {
 		"／", "-", // U+FF0F Full-width solidus
 		"＼", "-", // U+FF3C Full-width reverse solidus
 		"。", "-", // U+3002 CJK full stop
-		"＊", "",  // U+FF0A Full-width asterisk
-		"？", "",  // U+FF1F Full-width question mark
-		"＂", "",  // U+FF02 Full-width quotation mark
-		"＜", "",  // U+FF1C Full-width less-than
-		"＞", "",  // U+FF1E Full-width greater-than
-		"｜", "",  // U+FF5C Full-width vertical line
+		"＊", "", // U+FF0A Full-width asterisk
+		"？", "", // U+FF1F Full-width question mark
+		"＂", "", // U+FF02 Full-width quotation mark
+		"＜", "", // U+FF1C Full-width less-than
+		"＞", "", // U+FF1E Full-width greater-than
+		"｜", "", // U+FF5C Full-width vertical line
 		// Additional problematic characters
-		"「", "",  // CJK left corner bracket
-		"」", "",  // CJK right corner bracket
-		"【", "",  // CJK left black lenticular bracket
-		"】", "",  // CJK right black lenticular bracket
+		"「", "", // CJK left corner bracket
+		"」", "", // CJK right corner bracket
+		"【", "", // CJK left black lenticular bracket
+		"】", "", // CJK right black lenticular bracket
 	)
 	result = replacer.Replace(result)
 

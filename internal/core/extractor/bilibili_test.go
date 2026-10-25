@@ -107,7 +107,7 @@ func TestBilibiliExtraction(t *testing.T) {
 						if len(q.Get("w_rid")) != 32 || q.Get("wts") == "" {
 							t.Error("play URL request was not signed")
 						}
-						body = `{"code":0,"data":{"dash":{"video":[{"id":80,"baseUrl":"https://media.example/video","bandwidth":3000000,"width":1920,"height":1080,"codecid":7}],"audio":[{"baseUrl":"https://media.example/audio-low","bandwidth":64000},{"baseUrl":"https://media.example/audio-high","bandwidth":192000}]}}}`
+						body = `{"code":0,"data":{"dash":{"video":[{"id":80,"baseUrl":"https://media.example/video","backupUrl":["https://backup.example/video"],"bandwidth":3000000,"width":1920,"height":1080,"codecid":7}],"audio":[{"baseUrl":"https://media.example/audio-low","backupUrl":["https://backup.example/audio-low"],"bandwidth":64000},{"baseUrl":"https://media.example/audio-high","backupUrl":["https://backup.example/audio-high"],"bandwidth":192000}]}}}`
 					default:
 						t.Errorf("unexpected API request: %s", req.URL.Path)
 					}
@@ -141,6 +141,17 @@ func TestBilibiliExtraction(t *testing.T) {
 			}
 			if format.Headers["Referer"] != "https://www.bilibili.com/" || format.Headers["User-Agent"] == "" {
 				t.Fatal("missing CDN download headers")
+			}
+			encoded, err := json.Marshal(format)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var carried struct{ BackupURLs, AudioBackupURLs []string }
+			if err := json.Unmarshal(encoded, &carried); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Join(carried.BackupURLs, ",") != "https://backup.example/video" || strings.Join(carried.AudioBackupURLs, ",") != "https://backup.example/audio-high" {
+				t.Fatalf("CDN backup URLs were lost or selected from the wrong audio stream: %+v", carried)
 			}
 			if !tc.singlePart {
 				defaultFilenames[tc.wantCID] = SanitizeFilename(video.Title) + "." + format.Ext

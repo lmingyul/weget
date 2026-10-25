@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import clsx from "clsx";
 import { useApp } from "../context/AppContext";
 import { DownloadJobCard } from "../components/DownloadJobCard";
+import { PlaylistDialog } from "../components/PlaylistDialog";
+import { postBulkDownload, previewDownload, type DownloadPlaylist } from "../utils/apis";
 
 export function DownloadPage() {
   const {
@@ -15,25 +17,89 @@ export function DownloadPage() {
     removeJob,
     removeAllJobs,
     updateOutputDir,
+    showToast,
+    refresh,
   } = useApp();
 
   const [url, setUrl] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const downloadButtonRef = useRef<HTMLButtonElement>(null);
+  const [phase, setPhase] = useState<"checking" | "submitting" | null>(null);
+  const submitting = phase !== null;
+  const [playlist, setPlaylist] = useState<DownloadPlaylist | null>(null);
+  const [playlistError, setPlaylistError] = useState("");
   const [editingDir, setEditingDir] = useState(false);
   const [newOutputDir, setNewOutputDir] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url.trim() || submitting) return;
+    if (!url.trim() || submitting || playlist) return;
 
-    setSubmitting(true);
+    setPhase("checking");
+    let checking = true;
     try {
+      const preview = await previewDownload(url.trim());
+      if (preview.code !== 200) {
+        showToast("error", preview.message || t.playlist_check_failed);
+        return;
+      }
+      if (preview.data.playlist && preview.data.playlist.entries.length > 1) {
+        setPlaylistError("");
+        setPlaylist(preview.data.playlist);
+        return;
+      }
+      checking = false;
+      setPhase("submitting");
       const success = await submitDownload(url.trim());
       if (success) {
         setUrl("");
+      } else {
+        showToast("error", t.playlist_queue_failed);
       }
+    } catch {
+      showToast("error", checking ? t.playlist_check_failed : t.playlist_queue_failed);
     } finally {
-      setSubmitting(false);
+      setPhase(null);
+    }
+  };
+
+  const handleCurrent = async () => {
+    if (!playlist || submitting) return;
+    setPhase("submitting");
+    setPlaylistError("");
+    try {
+      if (await submitDownload(playlist.current_url)) {
+        setPlaylist(null);
+        setUrl("");
+      } else {
+        setPlaylistError(t.playlist_queue_failed);
+      }
+    } catch {
+      setPlaylistError(t.playlist_queue_failed);
+    } finally {
+      setPhase(null);
+    }
+  };
+
+  const handleSelected = async (urls: string[]) => {
+    if (!playlist || submitting || urls.length === 0) return;
+    setPhase("submitting");
+    setPlaylistError("");
+    try {
+      const res = await postBulkDownload(urls);
+      if (res.code !== 200 || res.data.queued === 0) {
+        setPlaylistError(res.message || t.playlist_queue_failed);
+        return;
+      }
+      refresh();
+      showToast(res.data.failed ? "warning" : "success", res.data.failed
+        ? t.playlist_partial.replace("{queued}", String(res.data.queued)).replace("{failed}", String(res.data.failed))
+        : `${res.data.queued} ${t.downloads_queued}`);
+      setPlaylist(null);
+      setUrl("");
+    } catch {
+      setPlaylistError(t.playlist_queue_failed);
+    } finally {
+      setPhase(null);
     }
   };
 
@@ -121,11 +187,12 @@ export function DownloadPage() {
           disabled={!isConnected || submitting}
         />
         <button
+          ref={downloadButtonRef}
           type="submit"
           className="px-6 py-3 border-none rounded-lg bg-blue-500 text-white text-base font-medium cursor-pointer hover:bg-blue-600 disabled:bg-zinc-300 dark:disabled:bg-zinc-700 disabled:cursor-not-allowed transition-colors"
           disabled={!isConnected || !url.trim() || submitting}
         >
-          {submitting ? t.adding : t.download}
+          {phase === "checking" ? t.checking_playlist : submitting ? t.adding : t.download}
         </button>
       </form>
 
@@ -180,6 +247,13 @@ export function DownloadPage() {
           </div>
         )}
       </section>
+      {playlist && (
+        <PlaylistDialog playlist={playlist} t={t} submitting={submitting} error={playlistError}
+          onCurrent={handleCurrent} onSelected={handleSelected} onCancel={() => {
+            setPlaylist(null);
+            downloadButtonRef.current?.focus();
+          }} />
+      )}
     </div>
   );
 }
