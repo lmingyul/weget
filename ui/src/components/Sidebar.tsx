@@ -15,7 +15,6 @@ import {
 import { useApp } from "../context/AppContext";
 
 interface SidebarProps {
-  lang: string;
   onClose?: () => void;
 }
 
@@ -27,7 +26,7 @@ interface NavItem {
   children?: NavItem[];
 }
 
-export function Sidebar({ lang, onClose }: SidebarProps) {
+export function Sidebar({ onClose }: SidebarProps) {
   const location = useLocation();
   const { t } = useApp();
 

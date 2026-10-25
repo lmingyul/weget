@@ -13,6 +13,7 @@ import (
 	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/telegram/query/dialogs"
 	"github.com/gotd/td/tg"
+	coreDownloader "github.com/guiyumin/vget/internal/core/downloader"
 	"github.com/guiyumin/vget/internal/core/extractor"
 )
 
@@ -348,6 +349,13 @@ func (opts DownloadOptions) outputPath(defaultName, ext string) (string, error) 
 	return filepath.Join(opts.OutputDir, name), nil
 }
 
+type trackedMediaClient struct{ downloader.Client }
+
+func (c trackedMediaClient) UploadGetFile(ctx context.Context, req *tg.UploadGetFileRequest) (tg.UploadFileClass, error) {
+	defer coreDownloader.TrackTransfer(ctx)()
+	return c.Client.UploadGetFile(ctx, req)
+}
+
 func streamMedia(ctx context.Context, api downloader.Client, dl *downloader.Downloader, location tg.InputFileLocationClass, path string, size int64, opts DownloadOptions) (err error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
@@ -369,7 +377,7 @@ func streamMedia(ctx context.Context, api downloader.Client, dl *downloader.Down
 		opts.ProgressFn(0, size)
 	}
 	writer := &progressWriter{w: f, fn: opts.ProgressFn, total: size}
-	if _, err = dl.Download(api, location).WithThreads(4).Parallel(ctx, writer); err != nil {
+	if _, err = dl.Download(trackedMediaClient{api}, location).WithThreads(4).Parallel(ctx, writer); err != nil {
 		return fmt.Errorf("telegram download failed: %w", err)
 	}
 	if size > 0 && writer.downloaded != size {

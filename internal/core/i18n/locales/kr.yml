@@ -107,6 +107,7 @@ ui:
   paste_hint: "위에 URL을 붙여넣어 시작하세요"
   queued: "대기 중"
   downloading: "다운로드 중"
+  download_concurrency: "동시 {count}개"
   completed: "완료"
   failed: "실패"
   cancelled: "취소됨"

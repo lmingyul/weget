@@ -8,7 +8,7 @@ import { useApp } from "../context/AppContext";
 import logo from "../assets/logo.png";
 
 export function Layout() {
-  const { health, isConnected, darkMode, setDarkMode, configLang } = useApp();
+  const { health, isConnected, darkMode, setDarkMode } = useApp();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
@@ -28,7 +28,7 @@ export function Layout() {
           sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         )}
       >
-        <Sidebar lang={configLang} onClose={() => setSidebarOpen(false)} />
+        <Sidebar onClose={() => setSidebarOpen(false)} />
       </div>
 
       <div className="flex-1 flex flex-col overflow-hidden">

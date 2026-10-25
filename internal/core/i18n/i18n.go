@@ -192,6 +192,7 @@ type UITranslations struct {
 	PasteHint       string `yaml:"paste_hint" json:"paste_hint"`
 	Queued          string `yaml:"queued" json:"queued"`
 	Downloading     string `yaml:"downloading" json:"downloading"`
+	Concurrency     string `yaml:"download_concurrency" json:"download_concurrency"`
 	Completed       string `yaml:"completed" json:"completed"`
 	Failed          string `yaml:"failed" json:"failed"`
 	Cancelled       string `yaml:"cancelled" json:"cancelled"`

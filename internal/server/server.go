@@ -45,14 +45,14 @@ type BulkDownloadRequest struct {
 
 // Server is the HTTP server for vget
 type Server struct {
-	port       int
-	outputDir  string
-	apiKey     string
+	port      int
+	outputDir string
+	apiKey    string
 	jobQueue  *JobQueue
 	historyDB *HistoryDB
-	cfg        *config.Config
-	server     *http.Server
-	engine     *gin.Engine
+	cfg       *config.Config
+	server    *http.Server
+	engine    *gin.Engine
 }
 
 // NewServer creates a new HTTP server
@@ -419,11 +419,12 @@ func (s *Server) handleStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, Response{
 		Code: 200,
 		Data: gin.H{
-			"id":       job.ID,
-			"status":   job.Status,
-			"progress": job.Progress,
-			"filename": job.Filename,
-			"error":    job.Error,
+			"id":          job.ID,
+			"status":      job.Status,
+			"progress":    job.Progress,
+			"concurrency": job.Concurrency,
+			"filename":    job.Filename,
+			"error":       job.Error,
 		},
 		Message: string(job.Status),
 	})
@@ -435,14 +436,15 @@ func (s *Server) handleGetJobs(c *gin.Context) {
 	jobList := make([]gin.H, len(jobs))
 	for i, job := range jobs {
 		jobList[i] = gin.H{
-			"id":         job.ID,
-			"url":        job.URL,
-			"status":     job.Status,
-			"progress":   job.Progress,
-			"downloaded": job.Downloaded,
-			"total":      job.Total,
-			"filename":   job.Filename,
-			"error":      job.Error,
+			"id":          job.ID,
+			"url":         job.URL,
+			"status":      job.Status,
+			"progress":    job.Progress,
+			"downloaded":  job.Downloaded,
+			"total":       job.Total,
+			"concurrency": job.Concurrency,
+			"filename":    job.Filename,
+			"error":       job.Error,
 		}
 	}
 
@@ -534,7 +536,7 @@ func (s *Server) handleGetConfig(c *gin.Context) {
 			"server_api_key":        cfg.Server.APIKey,
 			"webdav_servers":        webdavServers,
 			"torrent_enabled":       cfg.Torrent.Enabled,
-			},
+		},
 		Message: "config retrieved",
 	})
 }
@@ -1636,6 +1638,7 @@ func downloadFile(ctx context.Context, url, outputPath string, headers map[strin
 		req.Header.Set("User-Agent", downloader.DefaultUserAgent)
 	}
 
+	defer downloader.TrackTransfer(ctx)()
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("download request failed: %w", err)

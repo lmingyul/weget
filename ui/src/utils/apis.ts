@@ -14,6 +14,7 @@ export interface Job {
   progress: number;
   downloaded: number;
   total: number;
+  concurrency: number;
   filename?: string;
   error?: string;
 }

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/guiyumin/vget/internal/core/downloader"
 	"github.com/guiyumin/vget/internal/core/extractor"
 )
 
@@ -25,16 +26,17 @@ const (
 
 // Job represents a download job
 type Job struct {
-	ID         string    `json:"id"`
-	URL        string    `json:"url"`
-	Filename   string    `json:"filename,omitempty"`
-	Status     JobStatus `json:"status"`
-	Progress   float64   `json:"progress"`
-	Downloaded int64     `json:"downloaded"` // bytes downloaded
-	Total      int64     `json:"total"`      // total bytes (-1 if unknown)
-	Error      string    `json:"error,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID          string    `json:"id"`
+	URL         string    `json:"url"`
+	Filename    string    `json:"filename,omitempty"`
+	Status      JobStatus `json:"status"`
+	Progress    float64   `json:"progress"`
+	Downloaded  int64     `json:"downloaded"` // bytes downloaded
+	Total       int64     `json:"total"`      // total bytes (-1 if unknown)
+	Concurrency int       `json:"concurrency"`
+	Error       string    `json:"error,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 
 	// Internal fields (not serialized)
 	cancel context.CancelFunc `json:"-"`
@@ -258,6 +260,7 @@ func (jq *JobQueue) AddJob(rawURL, filename string) (*Job, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	ctx = downloader.WithConcurrencyTracking(ctx)
 
 	job := &Job{
 		ID:        id,
@@ -297,6 +300,9 @@ func (jq *JobQueue) GetJob(id string) *Job {
 	if job, ok := jq.jobs[id]; ok {
 		// Return a copy to avoid race conditions
 		jobCopy := *job
+		if jobCopy.Status == JobStatusDownloading {
+			jobCopy.Concurrency = downloader.ActiveTransfers(job.ctx)
+		}
 		return &jobCopy
 	}
 	return nil
@@ -310,6 +316,9 @@ func (jq *JobQueue) GetAllJobs() []*Job {
 	jobs := make([]*Job, 0, len(jq.jobs))
 	for _, job := range jq.jobs {
 		jobCopy := *job
+		if jobCopy.Status == JobStatusDownloading {
+			jobCopy.Concurrency = downloader.ActiveTransfers(job.ctx)
+		}
 		jobs = append(jobs, &jobCopy)
 	}
 	return jobs

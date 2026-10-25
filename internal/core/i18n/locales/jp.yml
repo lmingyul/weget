@@ -107,6 +107,7 @@ ui:
   paste_hint: "上にURLを貼り付けて開始"
   queued: "待機中"
   downloading: "ダウンロード中"
+  download_concurrency: "並列 {count}"
   completed: "完了"
   failed: "失敗"
   cancelled: "キャンセル済"

@@ -22,6 +22,7 @@ export interface UITranslations {
   paste_hint: string;
   queued: string;
   downloading: string;
+  download_concurrency: string;
   completed: string;
   failed: string;
   cancelled: string;
@@ -130,6 +131,7 @@ export const defaultTranslations: UITranslations = {
   paste_hint: "Paste a URL above to get started",
   queued: "queued",
   downloading: "downloading",
+  download_concurrency: "Parallel: {count}",
   completed: "completed",
   failed: "failed",
   cancelled: "cancelled",

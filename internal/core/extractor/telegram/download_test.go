@@ -20,6 +20,7 @@ import (
 	"github.com/gotd/td/telegram/dcs"
 	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/tg"
+	coreDownloader "github.com/guiyumin/vget/internal/core/downloader"
 )
 
 type telegramInvoker func(context.Context, bin.Encoder, bin.Decoder) error
@@ -251,6 +252,7 @@ func TestMediaDownloadsFourBlocksInParallel(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	ctx = coreDownloader.WithConcurrencyTracking(ctx)
 	started := make(chan int64, 4)
 	release := make(chan struct{})
 	firstWritten := make(chan struct{})
@@ -279,9 +281,15 @@ func TestMediaDownloadsFourBlocksInParallel(t *testing.T) {
 			t.Fatalf("only %d blocks requested concurrently: %v", i, err)
 		}
 	}
+	if active := coreDownloader.ActiveTransfers(ctx); active != 4 {
+		t.Errorf("reported %d active media requests, want 4", active)
+	}
 	close(release)
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+	if active := coreDownloader.ActiveTransfers(ctx); active != 0 {
+		t.Errorf("completed download still reports %d active media requests", active)
 	}
 	got, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(got, data) {

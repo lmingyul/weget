@@ -106,8 +106,6 @@ func RunHLSDownloadWithHeadersTUI(m3u8URL, output, displayID, lang string, heade
 	return nil
 }
 
- 
-
 // downloadHLSWithHeaders downloads an HLS stream with custom headers
 func downloadHLSWithHeaders(ctx context.Context, m3u8URL, output string, state *downloadState, config HLSConfig, headers map[string]string) error {
 	// Parse the m3u8 playlist
@@ -235,7 +233,7 @@ func downloadSegmentsOrdered(ctx context.Context, segments []Segment, file *os.F
 				default:
 				}
 
-				data, err := downloadSegment(client, seg.URL, decryptKey, decryptIV, seg.Index, headers)
+				data, err := downloadSegment(ctx, client, seg.URL, decryptKey, decryptIV, seg.Index, headers)
 				resultsChan <- segmentResult{
 					index: seg.Index,
 					data:  data,
@@ -292,8 +290,8 @@ func downloadSegmentsOrdered(ctx context.Context, segments []Segment, file *os.F
 }
 
 // downloadSegment downloads a single segment
-func downloadSegment(client *http.Client, url string, decryptKey, decryptIV []byte, index int, headers map[string]string) ([]byte, error) {
-	req, err := http.NewRequest("GET", url, nil)
+func downloadSegment(ctx context.Context, client *http.Client, url string, decryptKey, decryptIV []byte, index int, headers map[string]string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -304,6 +302,7 @@ func downloadSegment(client *http.Client, url string, decryptKey, decryptIV []by
 		req.Header.Set(key, value)
 	}
 
+	defer TrackTransfer(ctx)()
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

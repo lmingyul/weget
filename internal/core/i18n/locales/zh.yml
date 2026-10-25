@@ -107,6 +107,7 @@ ui:
   paste_hint: "在上方粘贴链接开始下载"
   queued: "排队中"
   downloading: "下载中"
+  download_concurrency: "并发 {count} 路"
   completed: "已完成"
   failed: "失败"
   cancelled: "已取消"

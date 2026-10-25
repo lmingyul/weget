@@ -110,6 +110,7 @@ func probeRangeSupport(ctx context.Context, client *http.Client, url, authHeader
 		req.Header.Set("Authorization", authHeader)
 	}
 
+	defer TrackTransfer(ctx)()
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, false, err
@@ -495,6 +496,7 @@ func downloadChunkOnce(ctx context.Context, client *http.Client, url, authHeader
 		req.Header.Set("Authorization", authHeader)
 	}
 
+	defer TrackTransfer(ctx)()
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, c.start, err
@@ -557,6 +559,7 @@ func downloadWithAuthSingleStream(ctx context.Context, client *http.Client, url,
 		req.Header.Set("Authorization", authHeader)
 	}
 
+	defer TrackTransfer(ctx)()
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("download request failed: %w", err)

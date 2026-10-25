@@ -132,7 +132,7 @@ export function DownloadJobCard({
               style={{ width: job.total > 0 ? `${job.progress}%` : "100%" }}
             />
           </div>
-          <div className="flex justify-between sm:justify-end gap-3">
+          <div className="flex flex-wrap justify-between sm:justify-end gap-x-3 gap-y-1 tabular-nums">
             <span className="text-xs text-zinc-400 dark:text-zinc-600 sm:min-w-18 text-left sm:text-right">
               {job.total > 0
                 ? `${job.progress.toFixed(1)}%`
@@ -140,6 +140,9 @@ export function DownloadJobCard({
             </span>
             <span className="text-xs text-zinc-500 dark:text-zinc-500 sm:min-w-20 text-right">
               {prettyBytes(speed, { bits: false }) + "/s"}
+            </span>
+            <span className="text-xs text-zinc-500 dark:text-zinc-500 whitespace-nowrap">
+              {t.download_concurrency.replace("{count}", String(job.concurrency))}
             </span>
           </div>
         </div>

@@ -107,6 +107,7 @@ ui:
   paste_hint: "Fügen Sie oben eine URL ein, um zu beginnen"
   queued: "wartend"
   downloading: "lädt"
+  download_concurrency: "Parallel: {count}"
   completed: "abgeschlossen"
   failed: "fehlgeschlagen"
   cancelled: "abgebrochen"
