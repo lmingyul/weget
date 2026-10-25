@@ -62,6 +62,10 @@ docker run -d -p 8080:8080 -v ~/downloads:/home/vget/downloads ghcr.io/guiyumin/
 
 See [sites.md](sites.md) for native extractors. Beyond those, any WebDAV server works out of the box.
 
+The web UI also downloads media from public and private Telegram channel message links. Run the server as the same OS user as your authenticated CLI to reuse the existing session at `~/.config/vget/telegram/desktop-session.json`. Private channels require that account to have joined them.
+
+Telegram downloads use four parallel chunk requests by default and the web job queue, including progress and cancellation. The server reads the CLI session into memory without changing the saved session file, and does not overwrite existing downloads.
+
 ## Commands
 
 | Command                                | Description                              |

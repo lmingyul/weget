@@ -62,6 +62,10 @@ docker run -d -p 8080:8080 -v ~/downloads:/home/vget/downloads ghcr.io/guiyumin/
 
 原生解析器见 [sites.md](sites.md)。除此之外，任何 WebDAV 服务开箱即用。
 
+网页端支持 Telegram 公开和私有频道的消息媒体链接。用与终端下载器相同的系统用户运行服务，即可复用 `~/.config/vget/telegram/desktop-session.json` 中已有的登录会话，无需再次登录。私有频道需要该账号已经加入。
+
+Telegram 下载默认使用 4 路分块并行，并接入网页任务队列，可查看进度或取消任务。服务只读取终端会话文件，连接期间的会话更新保存在内存中；已有下载文件不会被覆盖。
+
 ## 命令
 
 | 命令                               | 描述                                  |

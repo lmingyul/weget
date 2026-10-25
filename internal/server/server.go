@@ -17,6 +17,7 @@ import (
 	"github.com/guiyumin/vget/internal/core/config"
 	"github.com/guiyumin/vget/internal/core/downloader"
 	"github.com/guiyumin/vget/internal/core/extractor"
+	"github.com/guiyumin/vget/internal/core/extractor/telegram"
 	"github.com/guiyumin/vget/internal/core/i18n"
 	"github.com/guiyumin/vget/internal/core/version"
 	"github.com/guiyumin/vget/internal/core/webdav"
@@ -1184,6 +1185,10 @@ func (s *Server) downloadWithExtractor(ctx context.Context, url, filename string
 	if webdav.IsWebDAVURL(url) {
 		return s.downloadWebDAV(ctx, url, filename, progressFn)
 	}
+	if telegram.MatchURL(url) {
+		_, err := s.downloadTelegram(ctx, url, filename, progressFn)
+		return err
+	}
 
 	// Find matching extractor
 	ext := extractor.Match(url)
@@ -1323,6 +1328,18 @@ func (s *Server) downloadWithExtractor(ctx context.Context, url, filename string
 	return downloadFile(ctx, downloadURL, outputPath, headers, progressFn)
 }
 
+func (s *Server) downloadTelegram(ctx context.Context, url, filename string, progressFn func(int64, int64)) (*telegram.DownloadResult, error) {
+	return telegram.Download(ctx, telegram.DownloadOptions{
+		URL:        url,
+		OutputDir:  s.outputDir,
+		Filename:   filename,
+		ProgressFn: progressFn,
+		OnStart: func(path string) {
+			s.updateJobFilename(url, path)
+		},
+	})
+}
+
 func (s *Server) updateJobFilename(url, filename string) {
 	jobs := s.jobQueue.GetAllJobs()
 	for _, job := range jobs {
@@ -1425,6 +1442,15 @@ func (s *Server) downloadVideoWithAudio(ctx context.Context, format *extractor.V
 
 // downloadAndStream extracts and streams the file directly to the response
 func (s *Server) downloadAndStream(c *gin.Context, url, filename string) {
+	if telegram.MatchURL(url) {
+		result, err := s.downloadTelegram(c.Request.Context(), url, filename, nil)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, Response{Code: 500, Message: err.Error()})
+			return
+		}
+		c.FileAttachment(result.Filename, filepath.Base(result.Filename))
+		return
+	}
 	ext := extractor.Match(url)
 	if ext == nil {
 		c.JSON(http.StatusBadRequest, Response{
