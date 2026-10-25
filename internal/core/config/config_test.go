@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestExpandPath(t *testing.T) {
@@ -66,5 +68,23 @@ func TestExpandPath(t *testing.T) {
 				t.Errorf("expandPath(%q) = %q; want %q", tt.input, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestBilibiliCookieSurvivesConfigRoundTrip(t *testing.T) {
+	var cfg Config
+	if err := yaml.Unmarshal([]byte("bilibili:\n  cookie: SESSDATA=test-fixture\n"), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reloaded Config
+	if err := yaml.Unmarshal(encoded, &reloaded); err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Bilibili.Cookie != "SESSDATA=test-fixture" {
+		t.Fatal("saved CLI login cookie was lost")
 	}
 }

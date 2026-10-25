@@ -11,6 +11,7 @@ import (
 
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/downloader"
+	"github.com/gotd/td/telegram/query/dialogs"
 	"github.com/gotd/td/tg"
 	"github.com/guiyumin/vget/internal/core/extractor"
 )
@@ -57,10 +58,13 @@ func Download(ctx context.Context, opts DownloadOptions) (*DownloadResult, error
 		SessionStorage: storage,
 		NoUpdates:      true,
 	})
+	return downloadWithClient(ctx, client, msg, opts)
+}
 
+func downloadWithClient(ctx context.Context, client *telegram.Client, msg *Message, opts DownloadOptions) (*DownloadResult, error) {
 	var result *DownloadResult
 
-	err = client.Run(ctx, func(ctx context.Context) error {
+	err := client.Run(ctx, func(ctx context.Context) error {
 		status, err := client.Auth().Status(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to check auth status: %w", err)
@@ -115,6 +119,13 @@ func Download(ctx context.Context, opts DownloadOptions) (*DownloadResult, error
 
 	if err != nil {
 		return nil, err
+	}
+	// Client.Run treats context cancellation as a clean shutdown.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, fmt.Errorf("telegram client stopped without downloading media")
 	}
 
 	return result, nil
@@ -177,69 +188,23 @@ func resolvePrivateChannel(ctx context.Context, api *tg.Client, channelID int64)
 
 func getAllChannels(ctx context.Context, api *tg.Client) ([]ChannelInfo, error) {
 	var channels []ChannelInfo
-	var offsetDate int
-	var offsetID int
-	var offsetPeer tg.InputPeerClass = &tg.InputPeerEmpty{}
-
-	for {
-		dialogs, err := api.MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
-			OffsetPeer: offsetPeer,
-			OffsetDate: offsetDate,
-			OffsetID:   offsetID,
-			Limit:      100,
+	iter := dialogs.NewQueryBuilder(api).GetDialogs().BatchSize(100).Iter()
+	for iter.Next(ctx) {
+		elem := iter.Value()
+		peer, ok := elem.Peer.(*tg.InputPeerChannel)
+		if !ok {
+			continue
+		}
+		channel := elem.Entities.Channels()[peer.ChannelID]
+		channels = append(channels, ChannelInfo{
+			ID:         channel.ID,
+			AccessHash: channel.AccessHash,
+			Title:      channel.Title,
+			Username:   channel.Username,
 		})
-		if err != nil {
-			return channels, err
-		}
-
-		var chats []tg.ChatClass
-		var messages []tg.MessageClass
-		var done bool
-
-		switch d := dialogs.(type) {
-		case *tg.MessagesDialogs:
-			chats = d.Chats
-			messages = d.Messages
-			done = true
-		case *tg.MessagesDialogsSlice:
-			chats = d.Chats
-			messages = d.Messages
-			done = len(d.Dialogs) < 100
-		default:
-			done = true
-		}
-
-		for _, chat := range chats {
-			if channel, ok := chat.(*tg.Channel); ok {
-				channels = append(channels, ChannelInfo{
-					ID:         channel.ID,
-					AccessHash: channel.AccessHash,
-					Title:      channel.Title,
-					Username:   channel.Username,
-				})
-			}
-		}
-
-		if done || len(messages) == 0 {
-			break
-		}
-
-		lastMsg := messages[len(messages)-1]
-		if msg, ok := lastMsg.(*tg.Message); ok {
-			offsetDate = msg.Date
-			offsetID = msg.ID
-			if len(channels) > 0 {
-				offsetPeer = &tg.InputPeerChannel{
-					ChannelID:  channels[len(channels)-1].ID,
-					AccessHash: channels[len(channels)-1].AccessHash,
-				}
-			}
-		} else {
-			break
-		}
 	}
 
-	return channels, nil
+	return channels, iter.Err()
 }
 
 func extractMessage(result tg.MessagesMessagesClass) (*tg.Message, error) {
@@ -321,7 +286,7 @@ func downloadPhoto(
 		return nil, fmt.Errorf("no photo sizes available")
 	}
 
-	title := truncateText(msg.Message, 100)
+	title := extractor.SanitizeFilename(truncateText(msg.Message, 100))
 	if title == "" {
 		title = fmt.Sprintf("telegram_%d", msg.ID)
 	}
@@ -405,7 +370,7 @@ func streamMedia(ctx context.Context, api downloader.Client, dl *downloader.Down
 	}
 	writer := &progressWriter{w: f, fn: opts.ProgressFn, total: size}
 	if _, err = dl.Download(api, location).WithThreads(4).Parallel(ctx, writer); err != nil {
-		return fmt.Errorf("Telegram download failed: %w", err)
+		return fmt.Errorf("telegram download failed: %w", err)
 	}
 	if size > 0 && writer.downloaded != size {
 		return fmt.Errorf("incomplete Telegram download: got %d of %d bytes", writer.downloaded, size)
@@ -415,7 +380,7 @@ func streamMedia(ctx context.Context, api downloader.Client, dl *downloader.Down
 		return fmt.Errorf("cannot verify Telegram output file: %w", err)
 	}
 	if info.Size() != writer.downloaded {
-		return fmt.Errorf("Telegram output file size changed: got %d, wrote %d bytes", info.Size(), writer.downloaded)
+		return fmt.Errorf("telegram output file size changed: got %d, wrote %d bytes", info.Size(), writer.downloaded)
 	}
 	return nil
 }

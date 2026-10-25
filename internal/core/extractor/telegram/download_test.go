@@ -4,16 +4,194 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
+	"github.com/gotd/td/bin"
+	"github.com/gotd/td/telegram"
+	"github.com/gotd/td/telegram/dcs"
 	"github.com/gotd/td/telegram/downloader"
 	"github.com/gotd/td/tg"
 )
+
+type telegramInvoker func(context.Context, bin.Encoder, bin.Decoder) error
+
+func (f telegramInvoker) Invoke(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
+	return f(ctx, input, output)
+}
+
+func TestDownloadClientCancellation(t *testing.T) {
+	for _, cancelOriginal := range []bool{true, false} {
+		t.Run(fmt.Sprintf("cancel_original=%t", cancelOriginal), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			dials := 0
+			client := telegram.NewClient(DesktopAppID, DesktopAppHash, telegram.Options{
+				NoUpdates: true,
+				DCList: dcs.List{Options: []tg.DCOption{
+					{ID: 2, IPAddress: "127.0.0.1", Port: 1},
+				}},
+				Resolver: dcs.Plain(dcs.PlainOptions{
+					Dial: func(context.Context, string, string) (net.Conn, error) {
+						dials++
+						if cancelOriginal {
+							cancel()
+						}
+						return nil, context.Canceled
+					},
+				}),
+				ReconnectionBackoff: func() backoff.BackOff { return &backoff.StopBackOff{} },
+			})
+			result, err := downloadWithClient(ctx, client, &Message{}, DownloadOptions{})
+			if dials != 1 {
+				t.Fatalf("expected one offline connection attempt, got %d", dials)
+			}
+			if cancelOriginal {
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("original cancellation was lost: result=%v, err=%v", result, err)
+				}
+			} else {
+				if ctx.Err() != nil {
+					t.Fatalf("original context was unexpectedly cancelled: %v", ctx.Err())
+				}
+				if err == nil {
+					t.Fatal("client stopped without producing media but download reported success")
+				}
+			}
+			if result != nil {
+				t.Fatalf("failed download returned a result: %+v", result)
+			}
+		})
+	}
+}
+
+func TestChannelPaginationFollowsServiceMessage(t *testing.T) {
+	for _, endpoint := range []struct {
+		name   string
+		peer   tg.PeerClass
+		cursor tg.InputPeerClass
+	}{
+		{"user", &tg.PeerUser{UserID: 100}, &tg.InputPeerUser{UserID: 100, AccessHash: 1100}},
+		{"group", &tg.PeerChat{ChatID: 200}, &tg.InputPeerChat{ChatID: 200}},
+		{"channel", &tg.PeerChannel{ChannelID: 300}, &tg.InputPeerChannel{ChannelID: 300, AccessHash: 1300}},
+	} {
+		t.Run(endpoint.name, func(t *testing.T) {
+			first := &tg.MessagesDialogsSlice{Count: 101}
+			for i := 1; i <= 100; i++ {
+				peer := &tg.PeerUser{UserID: int64(i)}
+				first.Dialogs = append(first.Dialogs, &tg.Dialog{Peer: peer, TopMessage: i})
+				first.Messages = append(first.Messages, &tg.Message{ID: i, Date: 2000 + i, PeerID: peer})
+				first.Users = append(first.Users, &tg.User{ID: int64(i), AccessHash: int64(1000 + i)})
+			}
+			first.Dialogs[99] = &tg.Dialog{Peer: endpoint.peer, TopMessage: 777}
+			first.Messages[99] = &tg.MessageService{ID: 777, Date: 1234, PeerID: endpoint.peer}
+			// Entity and message order need not match the order of dialogs.
+			first.Messages[98], first.Messages[99] = first.Messages[99], first.Messages[98]
+			first.Chats = []tg.ChatClass{
+				&tg.Channel{ID: 300, AccessHash: 1300},
+				&tg.Chat{ID: 200},
+				&tg.Channel{ID: 999, AccessHash: 1999},
+			}
+			calls := 0
+			api := tg.NewClient(telegramInvoker(func(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				req, ok := input.(*tg.MessagesGetDialogsRequest)
+				if !ok {
+					return fmt.Errorf("unexpected RPC: %T", input)
+				}
+				calls++
+				switch calls {
+				case 1:
+					output.(*tg.MessagesDialogsBox).Dialogs = first
+				case 2:
+					if req.OffsetID != 777 || req.OffsetDate != 1234 || !reflect.DeepEqual(req.OffsetPeer, endpoint.cursor) {
+						t.Errorf("wrong next-page cursor: id=%d date=%d peer=%+v", req.OffsetID, req.OffsetDate, req.OffsetPeer)
+					}
+					peer := &tg.PeerChannel{ChannelID: 400}
+					output.(*tg.MessagesDialogsBox).Dialogs = &tg.MessagesDialogsSlice{
+						Count:    101,
+						Dialogs:  []tg.DialogClass{&tg.Dialog{Peer: peer, TopMessage: 1}},
+						Messages: []tg.MessageClass{&tg.Message{ID: 1, Date: 1000, PeerID: peer}},
+						Chats:    []tg.ChatClass{&tg.Channel{ID: 400, AccessHash: 1400, Title: "Target"}},
+					}
+				case 3:
+					if req.OffsetID != 1 || req.OffsetDate != 1000 || !reflect.DeepEqual(req.OffsetPeer, &tg.InputPeerChannel{ChannelID: 400, AccessHash: 1400}) {
+						t.Errorf("wrong terminal-page cursor: %+v", req)
+					}
+					output.(*tg.MessagesDialogsBox).Dialogs = &tg.MessagesDialogs{}
+				default:
+					return fmt.Errorf("unexpected extra dialog page")
+				}
+				return nil
+			}))
+			channel, err := resolvePrivateChannel(context.Background(), api, 400)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if calls != 3 || channel.ID != 400 || channel.AccessHash != 1400 {
+				t.Fatalf("wrong channel after pagination: %+v (%d calls)", channel, calls)
+			}
+		})
+	}
+}
+
+func TestCaptionFallbackFilenames(t *testing.T) {
+	for _, tc := range []struct{ name, caption, title string }{
+		{"URL only", "https://example.com/post", "telegram_42"},
+		{"long URL", "https://example.com/" + strings.Repeat("a", 200), "telegram_42"},
+		{"caption with URL", "Useful caption https://example.com/post", "Useful caption"},
+	} {
+		for _, kind := range []string{"photo", "document"} {
+			t.Run(kind+"/"+tc.name, func(t *testing.T) {
+				data := []byte("offline media fixture")
+				api := tg.NewClient(telegramInvoker(func(ctx context.Context, input bin.Encoder, output bin.Decoder) error {
+					req, ok := input.(*tg.UploadGetFileRequest)
+					if !ok {
+						return fmt.Errorf("unexpected RPC: %T", input)
+					}
+					file, err := (mediaClient{data: data}).UploadGetFile(ctx, req)
+					if err == nil {
+						output.(*tg.UploadFileBox).File = file
+					}
+					return err
+				}))
+				opts := DownloadOptions{OutputDir: t.TempDir()}
+				msg := &tg.Message{ID: 42, Message: tc.caption}
+				var result *DownloadResult
+				var err error
+				ext := "pdf"
+				if kind == "photo" {
+					ext = "jpg"
+					photo := &tg.Photo{Sizes: []tg.PhotoSizeClass{&tg.PhotoSize{Type: "x", W: 100, H: 100, Size: len(data)}}}
+					result, err = downloadPhoto(context.Background(), api, downloader.NewDownloader(), &tg.MessageMediaPhoto{Photo: photo}, msg, opts)
+				} else {
+					doc := &tg.Document{MimeType: "application/pdf", Size: int64(len(data))}
+					result, err = downloadDocument(context.Background(), api, downloader.NewDownloader(), &tg.MessageMediaDocument{Document: doc}, msg, opts)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Title != tc.title || filepath.Base(result.Filename) != tc.title+"."+ext {
+					t.Fatalf("wrong caption fallback: %+v", result)
+				}
+				got, err := os.ReadFile(result.Filename)
+				if err != nil || !bytes.Equal(got, data) {
+					t.Fatalf("offline fixture output differs: %v", err)
+				}
+			})
+		}
+	}
+}
 
 type mediaClient struct {
 	downloader.Client

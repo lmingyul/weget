@@ -10,7 +10,7 @@ vget 是资源之上的一层轻接口。给它一个链接或一个 WebDAV 资�
 
 工具本身刻意保持简单。真正的价值不是下载器，而是它连接的那些资源库。所以 vget 走标准协议而不是爬虫——不会因为网站改版而失效，任何人搭的 WebDAV 服务都能成为它可浏览、可下载的库。
 
-- **媒体链接** —— Twitter/X（视频/图片）、播客（小宇宙、Apple Podcasts）、直链文件、m3u8/HLS 流
+- **媒体链接** —— Twitter/X（视频/图片）、B 站视频、播客（小宇宙、Apple Podcasts）、直链文件、m3u8/HLS 流
 - **WebDAV 资源库** —— PikPak、NAS、seedbox，或任何人分享的 WebDAV 库：浏览、挑选、下载
 - **没有原生 WebDAV 的网盘**（百度、夸克、阿里云盘、115……）—— 用 [OpenList](https://github.com/OpenListTeam/OpenList)/Alist 转成 WebDAV，再把 vget 指向那个地址
 

@@ -2,9 +2,11 @@ package telegram
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/gotd/td/tg"
+	"github.com/guiyumin/vget/internal/core/extractor"
 )
 
 // ExtractedMedia contains extracted media information
@@ -46,7 +48,7 @@ func ExtractDocumentInfo(doc *tg.Document, messageText string, msgID int) *Extra
 		}
 	}
 
-	title := truncateText(messageText, 100)
+	title := extractor.SanitizeFilename(truncateText(messageText, 100))
 	if title == "" {
 		title = fmt.Sprintf("telegram_%d", msgID)
 	}
@@ -69,12 +71,22 @@ func FindLargestPhotoSize(sizes []tg.PhotoSizeClass) *tg.PhotoSize {
 	var largestArea int
 
 	for _, size := range sizes {
-		if ps, ok := size.(*tg.PhotoSize); ok {
-			area := ps.W * ps.H
-			if area > largestArea {
-				largest = ps
-				largestArea = area
+		var candidate *tg.PhotoSize
+		switch ps := size.(type) {
+		case *tg.PhotoSize:
+			candidate = ps
+		case *tg.PhotoSizeProgressive:
+			if len(ps.Sizes) == 0 {
+				continue
 			}
+			candidate = &tg.PhotoSize{Type: ps.Type, W: ps.W, H: ps.H, Size: slices.Max(ps.Sizes)}
+		default:
+			continue
+		}
+		area := candidate.W * candidate.H
+		if area > largestArea {
+			largest = candidate
+			largestArea = area
 		}
 	}
 

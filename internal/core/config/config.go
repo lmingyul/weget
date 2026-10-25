@@ -62,6 +62,9 @@ type Config struct {
 	// Twitter/X configuration
 	Twitter TwitterConfig `yaml:"twitter,omitempty"`
 
+	// Reuse Bilibili cookies saved by the existing CLI login.
+	Bilibili BilibiliConfig `yaml:"bilibili,omitempty"`
+
 	// Server configuration for vget-server (the web UI)
 	Server ServerConfig `yaml:"server,omitempty"`
 
@@ -70,6 +73,10 @@ type Config struct {
 
 	// Serve configuration for `vget serve` (sharing a library)
 	Serve ServeConfig `yaml:"serve,omitempty"`
+}
+
+type BilibiliConfig struct {
+	Cookie string `yaml:"cookie,omitempty"`
 }
 
 // ServeConfig holds defaults for `vget serve`. Flags override these; the
@@ -389,4 +396,3 @@ func LoadOrDefault() *Config {
 
 	return cfg
 }
-

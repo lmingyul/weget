@@ -5,10 +5,15 @@
 | Source                    | URL                      | Type            |
 | ------------------------- | ------------------------ | --------------- |
 | Twitter/X                 | twitter.com, x.com       | Video/Image     |
+| Bilibili (哔哩哔哩)       | bilibili.com, b23.tv     | Video (DASH)    |
 | Xiaoyuzhou FM (小宇宙)    | xiaoyuzhoufm.com         | Audio (Podcast) |
 | Apple Podcasts            | podcasts.apple.com       | Audio (Podcast) |
 
 ## Notes
+
+### Bilibili
+
+Supports BV/AV video links, multipart links with `?p=`, and b23.tv short links. Separate video and audio streams require ffmpeg to produce the final video. The extractor reuses `bilibili.cookie` from the existing vget config; available quality depends on the account permissions returned by Bilibili.
 
 ### Twitter/X Age-Restricted Content
 

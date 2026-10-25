@@ -1073,6 +1073,8 @@ func (s *Server) setConfigValue(cfg *config.Config, key, value string) error {
 		cfg.Quality = value
 	case "twitter_auth_token", "twitter.auth_token":
 		cfg.Twitter.AuthToken = value
+	case "bilibili.cookie", "bilibili_cookie":
+		cfg.Bilibili.Cookie = value
 	case "server.max_concurrent", "server_max_concurrent":
 		var val int
 		if _, err := fmt.Sscanf(value, "%d", &val); err != nil {
@@ -1356,6 +1358,10 @@ func (s *Server) updateJobFilename(url, filename string) {
 
 // downloadVideoWithAudio downloads video and audio in parallel then merges them with ffmpeg
 func (s *Server) downloadVideoWithAudio(ctx context.Context, format *extractor.VideoFormat, outputPath string, progressFn func(downloaded, total int64)) error {
+	if !downloader.FFmpegAvailable() {
+		return fmt.Errorf("ffmpeg is required to merge video and audio")
+	}
+
 	// Determine audio extension based on video format
 	audioExt := "m4a"
 	if format.Ext == "webm" {
@@ -1425,16 +1431,8 @@ func (s *Server) downloadVideoWithAudio(ctx context.Context, format *extractor.V
 		return fmt.Errorf("failed to download audio stream: %w", audioErr)
 	}
 
-	// Try to merge with ffmpeg if available
-	if downloader.FFmpegAvailable() {
-		// Merge to final output path and delete temp files on success
-		err := downloader.MergeVideoAudio(videoFile, audioFile, outputPath, true)
-		if err != nil {
-			log.Printf("Warning: ffmpeg merge failed: %v (temp files kept: %s, %s)", err, videoFile, audioFile)
-		}
-	} else {
-		// ffmpeg not available - just leave the separate files
-		log.Printf("ffmpeg not found, video and audio saved separately: %s, %s", videoFile, audioFile)
+	if err := downloader.MergeVideoAudio(videoFile, audioFile, outputPath, true); err != nil {
+		return fmt.Errorf("failed to merge video and audio (streams kept: %s, %s): %w", videoFile, audioFile, err)
 	}
 
 	return nil
@@ -1443,7 +1441,15 @@ func (s *Server) downloadVideoWithAudio(ctx context.Context, format *extractor.V
 // downloadAndStream extracts and streams the file directly to the response
 func (s *Server) downloadAndStream(c *gin.Context, url, filename string) {
 	if telegram.MatchURL(url) {
-		result, err := s.downloadTelegram(c.Request.Context(), url, filename, nil)
+		dir, err := os.MkdirTemp("", "vget-telegram-response-")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, Response{Code: 500, Message: err.Error()})
+			return
+		}
+		defer os.RemoveAll(dir)
+		result, err := telegram.Download(c.Request.Context(), telegram.DownloadOptions{
+			URL: url, OutputDir: dir, Filename: filename,
+		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, Response{Code: 500, Message: err.Error()})
 			return
@@ -1508,6 +1514,31 @@ func (s *Server) downloadAndStream(c *gin.Context, url, filename string) {
 			} else {
 				outputFilename = fmt.Sprintf("%s.%s", m.ID, ext)
 			}
+		}
+
+		if format.AudioURL != "" {
+			ext := filepath.Ext(outputFilename)
+			outputFilename = extractor.SanitizeFilename(strings.TrimSuffix(outputFilename, ext))
+			if outputFilename == "" {
+				c.JSON(http.StatusBadRequest, Response{Code: 400, Message: "invalid output filename"})
+				return
+			}
+			if ext = extractor.SanitizeFilename(ext); ext != "" {
+				outputFilename += "." + ext
+			}
+			dir, err := os.MkdirTemp("", "vget-dash-response-")
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, Response{Code: 500, Message: err.Error()})
+				return
+			}
+			defer os.RemoveAll(dir)
+			outputPath := filepath.Join(dir, "video.mp4")
+			if err := s.downloadVideoWithAudio(c.Request.Context(), format, outputPath, nil); err != nil {
+				c.JSON(http.StatusInternalServerError, Response{Code: 500, Message: err.Error()})
+				return
+			}
+			c.FileAttachment(outputPath, outputFilename)
+			return
 		}
 
 	case *extractor.AudioMedia:

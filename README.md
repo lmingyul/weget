@@ -10,7 +10,7 @@ vget is a thin, simple interface over the resources behind it. Point it at a lin
 
 The tool stays deliberately small. The value isn't the downloader; it's the resource libraries it connects to. So vget speaks standard protocols instead of scraping — it doesn't break when a site changes its markup, and any WebDAV server anyone runs becomes a library it can browse and pull from.
 
-- **Media links** — Twitter/X (video/image), podcasts (Xiaoyuzhou, Apple Podcasts), direct file URLs, m3u8/HLS streams
+- **Media links** — Twitter/X (video/image), Bilibili videos, podcasts (Xiaoyuzhou, Apple Podcasts), direct file URLs, m3u8/HLS streams
 - **WebDAV resource libraries** — PikPak, a NAS, a seedbox, or anyone's shared WebDAV library: browse, pick, download
 - **Cloud drives without native WebDAV** (Baidu, Quark, Aliyun, 115, …) — bridge them through [OpenList](https://github.com/OpenListTeam/OpenList)/Alist, then point vget at the WebDAV endpoint
 
